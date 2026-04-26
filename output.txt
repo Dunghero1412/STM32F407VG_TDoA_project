@@ -1,0 +1,142 @@
+Compiling src/gpio.c...
+src/gpio.c: In function 'GPIO_Init':
+src/gpio.c:63:31: error: 'GPIO_MODER_MODER0_Pos' undeclared (first use in this function); did you mean 'GPIO_MODER_MODER0_0'?
+   63 |     GPIOA->MODER |=  ( (2U << GPIO_MODER_MODER0_Pos)
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+      |                               GPIO_MODER_MODER0_0
+src/gpio.c:63:31: note: each undeclared identifier is reported only once for each function it appears in
+src/gpio.c:64:31: error: 'GPIO_MODER_MODER1_Pos' undeclared (first use in this function); did you mean 'GPIO_MODER_MODER1_0'?
+   64 |                      | (2U << GPIO_MODER_MODER1_Pos)
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+      |                               GPIO_MODER_MODER1_0
+src/gpio.c:65:31: error: 'GPIO_MODER_MODER2_Pos' undeclared (first use in this function); did you mean 'GPIO_MODER_MODER2_0'?
+   65 |                      | (2U << GPIO_MODER_MODER2_Pos)
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+      |                               GPIO_MODER_MODER2_0
+src/gpio.c:66:31: error: 'GPIO_MODER_MODER3_Pos' undeclared (first use in this function); did you mean 'GPIO_MODER_MODER3_0'?
+   66 |                      | (2U << GPIO_MODER_MODER3_Pos));
+      |                               ^~~~~~~~~~~~~~~~~~~~~
+      |                               GPIO_MODER_MODER3_0
+src/gpio.c:73:24: error: 'GPIO_PUPDR_PUPD0' undeclared (first use in this function); did you mean 'GPIO_PUPDR_PUPDR0'?
+   73 |     GPIOA->PUPDR &= ~( GPIO_PUPDR_PUPD0 | GPIO_PUPDR_PUPD1
+      |                        ^~~~~~~~~~~~~~~~
+      |                        GPIO_PUPDR_PUPDR0
+src/gpio.c:73:43: error: 'GPIO_PUPDR_PUPD1' undeclared (first use in this function); did you mean 'GPIO_PUPDR_PUPDR1'?
+   73 |     GPIOA->PUPDR &= ~( GPIO_PUPDR_PUPD0 | GPIO_PUPDR_PUPD1
+      |                                           ^~~~~~~~~~~~~~~~
+      |                                           GPIO_PUPDR_PUPDR1
+src/gpio.c:74:24: error: 'GPIO_PUPDR_PUPD2' undeclared (first use in this function); did you mean 'GPIO_PUPDR_PUPDR2'?
+   74 |                      | GPIO_PUPDR_PUPD2 | GPIO_PUPDR_PUPD3);
+      |                        ^~~~~~~~~~~~~~~~
+      |                        GPIO_PUPDR_PUPDR2
+src/gpio.c:74:43: error: 'GPIO_PUPDR_PUPD3' undeclared (first use in this function); did you mean 'GPIO_PUPDR_PUPDR3'?
+   74 |                      | GPIO_PUPDR_PUPD2 | GPIO_PUPDR_PUPD3);
+      |                                           ^~~~~~~~~~~~~~~~
+      |                                           GPIO_PUPDR_PUPDR3
+src/gpio.c:93:24: error: 'GPIO_OTYPER_OT0' undeclared (first use in this function); did you mean 'GPIO_OTYPER_OT_0'?
+   93 |     GPIOB->OTYPER  &= ~GPIO_OTYPER_OT0;               /* Push-pull */
+      |                        ^~~~~~~~~~~~~~~
+      |                        GPIO_OTYPER_OT_0
+src/gpio.c:94:24: error: 'GPIO_OSPEEDR_OSPEED0' undeclared (first use in this function); did you mean 'GPIO_OSPEEDER_OSPEEDR0'?
+   94 |     GPIOB->OSPEEDR &= ~GPIO_OSPEEDR_OSPEED0;
+      |                        ^~~~~~~~~~~~~~~~~~~~
+      |                        GPIO_OSPEEDER_OSPEEDR0
+src/gpio.c:95:31: error: 'GPIO_OSPEEDR_OSPEED0_Pos' undeclared (first use in this function); did you mean 'GPIO_OSPEEDER_OSPEEDR0_0'?
+   95 |     GPIOB->OSPEEDR |=  (2U << GPIO_OSPEEDR_OSPEED0_Pos); /* High speed */
+      |                               ^~~~~~~~~~~~~~~~~~~~~~~~
+      |                               GPIO_OSPEEDER_OSPEEDR0_0
+src/gpio.c:97:24: error: 'GPIO_BSRR_BR0' undeclared (first use in this function); did you mean 'GPIO_BSRR_BR_0'?
+   97 |     GPIOB->BSRR     =  GPIO_BSRR_BR0;                 /* Default LOW */
+      |                        ^~~~~~~~~~~~~
+      |                        GPIO_BSRR_BR_0
+src/gpio.c:103:31: error: 'GPIO_MODER_MODER12_Pos' undeclared (first use in this function); did you mean 'GPIO_MODER_MODER12_0'?
+  103 |     GPIOB->MODER |=  ( (2U << GPIO_MODER_MODER12_Pos)
+      |                               ^~~~~~~~~~~~~~~~~~~~~~
+      |                               GPIO_MODER_MODER12_0
+src/gpio.c:104:31: error: 'GPIO_MODER_MODER13_Pos' undeclared (first use in this function); did you mean 'GPIO_MODER_MODER13_0'?
+  104 |                      | (2U << GPIO_MODER_MODER13_Pos)
+      |                               ^~~~~~~~~~~~~~~~~~~~~~
+      |                               GPIO_MODER_MODER13_0
+src/gpio.c:105:31: error: 'GPIO_MODER_MODER14_Pos' undeclared (first use in this function); did you mean 'GPIO_MODER_MODER14_0'?
+  105 |                      | (2U << GPIO_MODER_MODER14_Pos)
+      |                               ^~~~~~~~~~~~~~~~~~~~~~
+      |                               GPIO_MODER_MODER14_0
+src/gpio.c:106:31: error: 'GPIO_MODER_MODER15_Pos' undeclared (first use in this function); did you mean 'GPIO_MODER_MODER15_0'?
+  106 |                      | (2U << GPIO_MODER_MODER15_Pos));
+      |                               ^~~~~~~~~~~~~~~~~~~~~~
+      |                               GPIO_MODER_MODER15_0
+src/gpio.c:109:25: error: 'GPIO_OTYPER_OT12' undeclared (first use in this function); did you mean 'GPIO_OTYPER_OT_12'?
+  109 |     GPIOB->OTYPER &= ~( GPIO_OTYPER_OT12 | GPIO_OTYPER_OT13
+      |                         ^~~~~~~~~~~~~~~~
+      |                         GPIO_OTYPER_OT_12
+src/gpio.c:109:44: error: 'GPIO_OTYPER_OT13' undeclared (first use in this function); did you mean 'GPIO_OTYPER_OT_13'?
+  109 |     GPIOB->OTYPER &= ~( GPIO_OTYPER_OT12 | GPIO_OTYPER_OT13
+      |                                            ^~~~~~~~~~~~~~~~
+      |                                            GPIO_OTYPER_OT_13
+src/gpio.c:110:25: error: 'GPIO_OTYPER_OT14' undeclared (first use in this function); did you mean 'GPIO_OTYPER_OT_14'?
+  110 |                       | GPIO_OTYPER_OT14 | GPIO_OTYPER_OT15);
+      |                         ^~~~~~~~~~~~~~~~
+      |                         GPIO_OTYPER_OT_14
+src/gpio.c:110:44: error: 'GPIO_OTYPER_OT15' undeclared (first use in this function); did you mean 'GPIO_OTYPER_OT_15'?
+  110 |                       | GPIO_OTYPER_OT14 | GPIO_OTYPER_OT15);
+      |                                            ^~~~~~~~~~~~~~~~
+      |                                            GPIO_OTYPER_OT_15
+src/gpio.c:113:26: error: 'GPIO_OSPEEDR_OSPEED12' undeclared (first use in this function); did you mean 'GPIO_OSPEEDER_OSPEEDR12'?
+  113 |     GPIOB->OSPEEDR &= ~( GPIO_OSPEEDR_OSPEED12 | GPIO_OSPEEDR_OSPEED13
+      |                          ^~~~~~~~~~~~~~~~~~~~~
+      |                          GPIO_OSPEEDER_OSPEEDR12
+src/gpio.c:113:50: error: 'GPIO_OSPEEDR_OSPEED13' undeclared (first use in this function); did you mean 'GPIO_OSPEEDER_OSPEEDR13'?
+  113 |     GPIOB->OSPEEDR &= ~( GPIO_OSPEEDR_OSPEED12 | GPIO_OSPEEDR_OSPEED13
+      |                                                  ^~~~~~~~~~~~~~~~~~~~~
+      |                                                  GPIO_OSPEEDER_OSPEEDR13
+src/gpio.c:114:26: error: 'GPIO_OSPEEDR_OSPEED14' undeclared (first use in this function); did you mean 'GPIO_OSPEEDER_OSPEEDR14'?
+  114 |                        | GPIO_OSPEEDR_OSPEED14 | GPIO_OSPEEDR_OSPEED15);
+      |                          ^~~~~~~~~~~~~~~~~~~~~
+      |                          GPIO_OSPEEDER_OSPEEDR14
+src/gpio.c:114:50: error: 'GPIO_OSPEEDR_OSPEED15' undeclared (first use in this function); did you mean 'GPIO_OSPEEDER_OSPEEDR15'?
+  114 |                        | GPIO_OSPEEDR_OSPEED14 | GPIO_OSPEEDR_OSPEED15);
+      |                                                  ^~~~~~~~~~~~~~~~~~~~~
+      |                                                  GPIO_OSPEEDER_OSPEEDR15
+src/gpio.c:115:33: error: 'GPIO_OSPEEDR_OSPEED12_Pos' undeclared (first use in this function); did you mean 'GPIO_OSPEEDER_OSPEEDR2_1'?
+  115 |     GPIOB->OSPEEDR |=  ( (3U << GPIO_OSPEEDR_OSPEED12_Pos)
+      |                                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                 GPIO_OSPEEDER_OSPEEDR2_1
+src/gpio.c:116:33: error: 'GPIO_OSPEEDR_OSPEED13_Pos' undeclared (first use in this function); did you mean 'GPIO_OSPEEDER_OSPEEDR3_0'?
+  116 |                        | (3U << GPIO_OSPEEDR_OSPEED13_Pos)
+      |                                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                 GPIO_OSPEEDER_OSPEEDR3_0
+src/gpio.c:117:33: error: 'GPIO_OSPEEDR_OSPEED14_Pos' undeclared (first use in this function); did you mean 'GPIO_OSPEEDER_OSPEEDR14_0'?
+  117 |                        | (3U << GPIO_OSPEEDR_OSPEED14_Pos)
+      |                                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                 GPIO_OSPEEDER_OSPEEDR14_0
+src/gpio.c:118:33: error: 'GPIO_OSPEEDR_OSPEED15_Pos' undeclared (first use in this function); did you mean 'GPIO_OSPEEDER_OSPEEDR5_0'?
+  118 |                        | (3U << GPIO_OSPEEDR_OSPEED15_Pos));
+      |                                 ^~~~~~~~~~~~~~~~~~~~~~~~~
+      |                                 GPIO_OSPEEDER_OSPEEDR5_0
+src/gpio.c:121:24: error: 'GPIO_PUPDR_PUPD12' undeclared (first use in this function); did you mean 'GPIO_PUPDR_PUPDR12'?
+  121 |     GPIOB->PUPDR &= ~( GPIO_PUPDR_PUPD12 | GPIO_PUPDR_PUPD13
+      |                        ^~~~~~~~~~~~~~~~~
+      |                        GPIO_PUPDR_PUPDR12
+src/gpio.c:121:44: error: 'GPIO_PUPDR_PUPD13' undeclared (first use in this function); did you mean 'GPIO_PUPDR_PUPDR13'?
+  121 |     GPIOB->PUPDR &= ~( GPIO_PUPDR_PUPD12 | GPIO_PUPDR_PUPD13
+      |                                            ^~~~~~~~~~~~~~~~~
+      |                                            GPIO_PUPDR_PUPDR13
+src/gpio.c:122:24: error: 'GPIO_PUPDR_PUPD14' undeclared (first use in this function); did you mean 'GPIO_PUPDR_PUPDR14'?
+  122 |                      | GPIO_PUPDR_PUPD14 | GPIO_PUPDR_PUPD15);
+      |                        ^~~~~~~~~~~~~~~~~
+      |                        GPIO_PUPDR_PUPDR14
+src/gpio.c:122:44: error: 'GPIO_PUPDR_PUPD15' undeclared (first use in this function); did you mean 'GPIO_PUPDR_PUPDR15'?
+  122 |                      | GPIO_PUPDR_PUPD14 | GPIO_PUPDR_PUPD15);
+      |                                            ^~~~~~~~~~~~~~~~~
+      |                                            GPIO_PUPDR_PUPDR15
+src/gpio.c: In function 'GPIO_DataReady_Set':
+src/gpio.c:137:19: error: 'GPIO_BSRR_BS0' undeclared (first use in this function); did you mean 'GPIO_BSRR_BS_0'?
+  137 |     GPIOB->BSRR = GPIO_BSRR_BS0;   /* PB0 = HIGH */
+      |                   ^~~~~~~~~~~~~
+      |                   GPIO_BSRR_BS_0
+src/gpio.c: In function 'GPIO_DataReady_Clear':
+src/gpio.c:142:19: error: 'GPIO_BSRR_BR0' undeclared (first use in this function); did you mean 'GPIO_BSRR_BR_0'?
+  142 |     GPIOB->BSRR = GPIO_BSRR_BR0;   /* PB0 = LOW */
+      |                   ^~~~~~~~~~~~~
+      |                   GPIO_BSRR_BR_0
+make: *** [Makefile:43: src/gpio.o] Error 1
