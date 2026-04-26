@@ -1,30 +1,42 @@
 /**
- * spi.c - SPI2 Slave mode + DMA TX (Bare-metal, STM32F407VG)
- * ------------------------------------------------------------
- * STM32 là SLAVE, RPi 5 là MASTER.
+ * spi.c - SPI2 Slave + DMA TX (Bare-metal, STM32F407VG)
+ * -------------------------------------------------------
+ * STM32 = SPI SLAVE, RPi 5 = SPI MASTER
  *
- * Pins (đã config trong gpio.c):
- *   PB12 → SPI2_NSS  (AF05) – Hardware NSS, slave select từ RPi
+ * Pins (config trong gpio.c):
+ *   PB12 → SPI2_NSS  (AF05) – Hardware NSS từ RPi
  *   PB13 → SPI2_SCK  (AF05) – Clock từ RPi
- *   PB14 → SPI2_MISO (AF05) – STM32 gửi dữ liệu → RPi
- *   PB15 → SPI2_MOSI (AF05) – RPi gửi dữ liệu → STM32 (không dùng)
+ *   PB14 → SPI2_MISO (AF05) – STM32 → RPi
+ *   PB15 → SPI2_MOSI (AF05) – RPi → STM32 (không dùng)
  *
- * Mode: SPI Mode 0 (CPOL=0, CPHA=0) – phổ biến nhất với RPi
- * Frame: 8-bit, MSB first
- * DMA:   DMA1 Stream 4, Channel 0 → SPI2_TX
+ * Mode: SPI Mode 0 (CPOL=0, CPHA=0), 8-bit, MSB first
+ * DMA:  DMA1 Stream4 Channel0 → SPI2_TX
  *
- * Luồng hoạt động:
- *   1. main() gọi SPI_SetTxBuffer() với dữ liệu timestamp
- *   2. PB0 (DATA_READY) set HIGH → báo RPi
- *   3. RPi kéo NSS LOW và clock data ra
- *   4. DMA tự động stream TX buffer qua MISO
- *   5. Khi DMA xong → DMA interrupt → SPI_IsBusy() = 0
+ * FIX: Thay toàn bộ macro _Pos / _Msk bằng bit shift trực tiếp,
+ *      tương thích mọi phiên bản STM32F4 header.
  *
- * Cấu trúc TX packet (16 bytes):
- *   [0..3]   : timestamp CH1 (uint32_t, little-endian)
- *   [4..7]   : timestamp CH2
- *   [8..11]  : timestamp CH3
- *   [12..15] : timestamp CH4
+ * -------------------------------------------------------
+ * SPI2 CR1 bit layout (dùng trong code này):
+ *   bit0  = CPHA     bit1  = CPOL     bit2  = MSTR
+ *   bit3  = BR[2:0]  (bit3–5)         bit6  = SPE
+ *   bit7  = LSBFIRST bit8  = SSI      bit9  = SSM
+ *   bit10 = RXONLY   bit11 = DFF      bit15 = BIDIMODE
+ *
+ * SPI2 CR2 bit layout:
+ *   bit0  = RXDMAEN  bit1  = TXDMAEN  bit2  = SSOE
+ *   bit5  = ERRIE    bit6  = RXNEIE   bit7  = TXEIE
+ *
+ * SPI2 SR bit layout:
+ *   bit0  = RXNE     bit1  = TXE      bit6  = OVR
+ *   bit4  = MODF     bit7  = BSY
+ *
+ * DMA1 SxCR bit layout (dùng trong code này):
+ *   bit0  = EN       bit1  = DMEIE    bit2  = TEIE
+ *   bit3  = HTIE     bit4  = TCIE     bit5  = PFCTRL
+ *   bit6–7 = DIR     bit8  = CIRC     bit9  = PINC
+ *   bit10 = MINC     bit11–12 = PSIZE bit13–14 = MSIZE
+ *   bit16–17 = PL    bit25–27 = CHSEL
+ * -------------------------------------------------------
  */
 
 #include "../inc/spi.h"
@@ -34,10 +46,10 @@
 /* ------------------------------------------------------------------ */
 /* Internal state                                                       */
 /* ------------------------------------------------------------------ */
-#define SPI_TX_BUF_SIZE   16U
+#define SPI_TX_BUF_SIZE   20U    /* 4 sensor × 5 bytes */
 
-static uint8_t  s_tx_buf[SPI_TX_BUF_SIZE];
-static volatile uint8_t s_busy = 0;
+static uint8_t          s_tx_buf[SPI_TX_BUF_SIZE];
+static volatile uint8_t s_busy = 0U;
 
 /* ------------------------------------------------------------------ */
 void SPI_Init(void)
@@ -47,100 +59,99 @@ void SPI_Init(void)
     RCC->AHB1ENR |= RCC_AHB1ENR_DMA1EN;
     __DSB();
 
-    /* ── 2. Reset SPI2 ───────────────────────────────────────────── */
-    SPI2->CR1 = 0;
-    SPI2->CR2 = 0;
+    /* ── 2. Disable SPI2 trước khi config ───────────────────────── */
+    SPI2->CR1 = 0U;
+    SPI2->CR2 = 0U;
 
-    /* ── 3. Cấu hình SPI2 CR1 ────────────────────────────────────── */
+    /* ── 3. CR1 – SPI2 Slave Mode 0, 8-bit, MSB first ───────────── */
     /*
-     * BIDIMODE = 0  → 2-line unidirectional
-     * DFF      = 0  → 8-bit data frame
-     * RXONLY   = 0  → full duplex
-     * SSM      = 0  → Hardware NSS (NSS pin điều khiển bởi RPi)
-     * SSI      = 0  → (không dùng khi SSM=0)
-     * LSBFIRST = 0  → MSB first
-     * SPE      = 0  → chưa enable, enable sau
-     * BR       = 0  → không quan trọng với slave (clock từ master)
-     * MSTR     = 0  → SLAVE mode
-     * CPOL     = 0  → Clock idle LOW  (Mode 0)
-     * CPHA     = 0  → Capture on rising edge (Mode 0)
+     * CPHA     = 0 → Capture on first (rising) edge
+     * CPOL     = 0 → Clock idle LOW
+     * MSTR     = 0 → SLAVE mode
+     * BR[2:0]  = 0 → Không quan trọng với slave (clock từ master)
+     * SPE      = 0 → Enable sau khi config xong
+     * LSBFIRST = 0 → MSB first
+     * SSI      = 0 → (không dùng vì SSM=0)
+     * SSM      = 0 → Hardware NSS (PB12 điều khiển bởi RPi)
+     * RXONLY   = 0 → Full duplex
+     * DFF      = 0 → 8-bit data frame
+     * BIDIMODE = 0 → 2-line unidirectional
+     *
+     * → CR1 = 0x0000 (tất cả 0)
      */
-    SPI2->CR1 = 0;  /* Tất cả 0 = slave, mode 0, 8-bit, MSB first */
+    SPI2->CR1 = 0U;
 
-    /* ── 4. Cấu hình SPI2 CR2 ────────────────────────────────────── */
+    /* ── 4. CR2 – Enable TX DMA + Error interrupt ────────────────── */
     /*
-     * TXDMAEN = 1 → Enable DMA request khi TX buffer empty
-     * SSOE    = 0 → (slave mode, không output NSS)
-     * FRF     = 0 → Motorola frame format
-     * ERRIE   = 1 → Enable error interrupt (OVR, MODF)
-     * RXNEIE  = 0 → Không dùng RX interrupt
-     * TXEIE   = 0 → Dùng DMA thay vì interrupt
+     * TXDMAEN = bit1 = 1 → DMA request khi TXE set
+     * ERRIE   = bit5 = 1 → Interrupt khi OVR/MODF
      */
-    SPI2->CR2 = SPI_CR2_TXDMAEN | SPI_CR2_ERRIE;
+    SPI2->CR2 = (1U << 1U)    /* TXDMAEN */
+              | (1U << 5U);   /* ERRIE   */
 
-    /* ── 5. Cấu hình DMA1 Stream4 Channel0 → SPI2_TX ────────────── */
+    /* ── 5. Cấu hình DMA1 Stream4 Channel0 (SPI2_TX) ────────────── */
+
+    /* Tắt stream trước khi config (EN = bit0) */
+    DMA1_Stream4->CR &= ~(1U << 0U);
+    while (DMA1_Stream4->CR & (1U << 0U)) {}
+
+    /* Xóa tất cả cờ interrupt của Stream4 trong HIFCR */
     /*
-     * DMA1 Stream4, Channel0 = SPI2_TX (theo DMA request mapping F407)
+     * HIFCR layout (stream 4–7):
+     *   Stream4: bit0=CFEIF4 bit2=CDMEIF4 bit3=CTEIF4
+     *            bit4=CHTIF4 bit5=CTCIF4
      */
+    DMA1->HIFCR = (1U << 0U)    /* CFEIF4  */
+                | (1U << 2U)    /* CDMEIF4 */
+                | (1U << 3U)    /* CTEIF4  */
+                | (1U << 4U)    /* CHTIF4  */
+                | (1U << 5U);   /* CTCIF4  */
 
-    /* Tắt stream trước khi config */
-    DMA1_Stream4->CR &= ~DMA_SxCR_EN;
-    while (DMA1_Stream4->CR & DMA_SxCR_EN) {}  /* chờ disable */
+    /* PAR: địa chỉ SPI2->DR (peripheral, fixed) */
+    DMA1_Stream4->PAR  = (uint32_t)(&SPI2->DR);
 
-    /* Xóa cờ interrupt của stream 4 */
-    DMA1->HIFCR = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4
-                | DMA_HIFCR_CTEIF4 | DMA_HIFCR_CDMEIF4
-                | DMA_HIFCR_CFEIF4;
-
-    /* PAR: địa chỉ SPI2->DR (peripheral) */
-    DMA1_Stream4->PAR  = (uint32_t)&SPI2->DR;
-
-    /* MAR: địa chỉ TX buffer (memory) */
+    /* M0AR: địa chỉ TX buffer (memory) */
     DMA1_Stream4->M0AR = (uint32_t)s_tx_buf;
 
-    /* NDTR: số byte cần truyền */
+    /* NDTR: số byte */
     DMA1_Stream4->NDTR = SPI_TX_BUF_SIZE;
 
-    /* CR config:
-     * CHSEL  = 000  → Channel 0
-     * MBURST = 00   → single
-     * PBURST = 00   → single
-     * CT     = 0    → memory 0
-     * DBM    = 0    → no double buffer
-     * PL     = 01   → Medium priority
-     * MSIZE  = 00   → 8-bit memory
-     * PSIZE  = 00   → 8-bit peripheral
-     * MINC   = 1    → Memory increment
-     * PINC   = 0    → Peripheral fixed
-     * CIRC   = 0    → No circular
-     * DIR    = 01   → Memory → Peripheral (TX)
-     * PFCTRL = 0    → DMA flow control
-     * TCIE   = 1    → Transfer complete interrupt
-     * HTIE   = 0
-     * TEIE   = 1    → Transfer error interrupt
+    /* FCR: Direct mode (disable FIFO = bit2 DMDIS = 0) */
+    DMA1_Stream4->FCR  = 0U;
+
+    /* SxCR config:
+     *   CHSEL[2:0] = 000 → Channel 0      (bit25–27)
+     *   PL[1:0]    = 01  → Medium priority (bit16–17)
+     *   MSIZE[1:0] = 00  → 8-bit memory   (bit13–14)
+     *   PSIZE[1:0] = 00  → 8-bit periph   (bit11–12)
+     *   MINC       = 1   → Memory incr    (bit10)
+     *   PINC       = 0   → Periph fixed   (bit9)
+     *   CIRC       = 0   → No circular    (bit8)
+     *   DIR[1:0]   = 01  → Mem→Periph     (bit6–7)
+     *   TCIE       = 1   → TC interrupt   (bit4)
+     *   TEIE       = 1   → TE interrupt   (bit2)
+     *   EN         = 0   → Chưa enable    (bit0)
      */
-    DMA1_Stream4->CR = (0U  << DMA_SxCR_CHSEL_Pos)  /* Channel 0 */
-                     | (1U  << DMA_SxCR_PL_Pos)      /* Priority medium */
-                     | (0U  << DMA_SxCR_MSIZE_Pos)   /* 8-bit mem */
-                     | (0U  << DMA_SxCR_PSIZE_Pos)   /* 8-bit periph */
-                     | DMA_SxCR_MINC                  /* Memory increment */
-                     | (1U  << DMA_SxCR_DIR_Pos)     /* Mem→Periph */
-                     | DMA_SxCR_TCIE                  /* TC interrupt */
-                     | DMA_SxCR_TEIE;                 /* TE interrupt */
+    DMA1_Stream4->CR = (0U  << 25U)   /* CHSEL = 0 */
+                     | (1U  << 16U)   /* PL = medium */
+                     | (0U  << 13U)   /* MSIZE = 8-bit */
+                     | (0U  << 11U)   /* PSIZE = 8-bit */
+                     | (1U  << 10U)   /* MINC = 1 */
+                     | (0U  << 9U)    /* PINC = 0 */
+                     | (0U  << 8U)    /* CIRC = 0 */
+                     | (1U  << 6U)    /* DIR = Mem→Periph */
+                     | (1U  << 4U)    /* TCIE = 1 */
+                     | (1U  << 2U);   /* TEIE = 1 */
 
-    /* FIFO control: disable FIFO (direct mode) */
-    DMA1_Stream4->FCR = 0;
-
-    /* ── 6. NVIC: Enable DMA1 Stream4 interrupt ─────────────────── */
+    /* ── 6. NVIC ─────────────────────────────────────────────────── */
     NVIC_SetPriority(DMA1_Stream4_IRQn, 1U);
     NVIC_EnableIRQ(DMA1_Stream4_IRQn);
 
-    /* ── 7. NVIC: Enable SPI2 interrupt (error handling) ────────── */
     NVIC_SetPriority(SPI2_IRQn, 1U);
     NVIC_EnableIRQ(SPI2_IRQn);
 
-    /* ── 8. Enable SPI2 ──────────────────────────────────────────── */
-    SPI2->CR1 |= SPI_CR1_SPE;
+    /* ── 7. Enable SPI2 (SPE = bit6 của CR1) ────────────────────── */
+    SPI2->CR1 |= (1U << 6U);
 }
 
 /* ------------------------------------------------------------------ */
@@ -148,35 +159,30 @@ void SPI_SetTxBuffer(uint8_t *buf, uint16_t size)
 {
     if (size > SPI_TX_BUF_SIZE) size = SPI_TX_BUF_SIZE;
 
-    /* Copy dữ liệu vào TX buffer nội */
     memcpy(s_tx_buf, buf, size);
-
-    /* Padding nếu size < 16 */
     if (size < SPI_TX_BUF_SIZE)
-        memset(s_tx_buf + size, 0, SPI_TX_BUF_SIZE - size);
+        memset(s_tx_buf + size, 0U, SPI_TX_BUF_SIZE - size);
 
-    /* ── Khởi động lại DMA ─────────────────────────────────────── */
-    s_busy = 1;
+    s_busy = 1U;
 
     /* Tắt DMA stream */
-    DMA1_Stream4->CR &= ~DMA_SxCR_EN;
-    while (DMA1_Stream4->CR & DMA_SxCR_EN) {}
+    DMA1_Stream4->CR &= ~(1U << 0U);   /* EN = 0 */
+    while (DMA1_Stream4->CR & (1U << 0U)) {}
 
     /* Xóa cờ */
-    DMA1->HIFCR = DMA_HIFCR_CTCIF4 | DMA_HIFCR_CHTIF4
-                | DMA_HIFCR_CTEIF4 | DMA_HIFCR_CDMEIF4
-                | DMA_HIFCR_CFEIF4;
+    DMA1->HIFCR = (1U << 0U) | (1U << 2U) | (1U << 3U)
+                | (1U << 4U) | (1U << 5U);
 
     /* Cập nhật địa chỉ và số byte */
     DMA1_Stream4->M0AR = (uint32_t)s_tx_buf;
     DMA1_Stream4->NDTR = SPI_TX_BUF_SIZE;
 
-    /* Xóa SPI OVR nếu có */
+    /* Xóa SPI OVR flag nếu có */
     (void)SPI2->DR;
     (void)SPI2->SR;
 
-    /* Enable DMA stream → sẵn sàng truyền khi RPi kéo NSS */
-    DMA1_Stream4->CR |= DMA_SxCR_EN;
+    /* Enable DMA stream → sẵn sàng khi RPi kéo NSS */
+    DMA1_Stream4->CR |= (1U << 0U);   /* EN = 1 */
 }
 
 /* ------------------------------------------------------------------ */
@@ -186,50 +192,54 @@ uint8_t SPI_IsBusy(void)
 }
 
 /* ================================================================== */
-/* DMA1 Stream4 IRQ Handler – SPI2 TX Complete                        */
+/* DMA1 Stream4 IRQ – SPI2 TX Complete                                */
 /* ================================================================== */
 void DMA1_Stream4_IRQHandler(void)
 {
+    /*
+     * HISR layout stream4:
+     *   bit0=FEIF4  bit2=DMEIF4  bit3=TEIF4
+     *   bit4=HTIF4  bit5=TCIF4
+     */
     uint32_t hisr = DMA1->HISR;
 
-    if (hisr & DMA_HISR_TCIF4)
+    if (hisr & (1U << 5U))   /* TCIF4: Transfer complete */
     {
-        /* Transfer complete */
-        DMA1->HIFCR = DMA_HIFCR_CTCIF4;
+        DMA1->HIFCR = (1U << 5U);   /* CTCIF4 */
 
-        /* Chờ SPI TX buffer trống và SPI không busy */
-        while (!(SPI2->SR & SPI_SR_TXE)) {}
-        while (SPI2->SR & SPI_SR_BSY)   {}
+        /* Chờ SPI TX buffer trống (TXE = bit1 SR) */
+        while (!(SPI2->SR & (1U << 1U))) {}
+        /* Chờ SPI không còn busy (BSY = bit7 SR) */
+        while (SPI2->SR & (1U << 7U)) {}
 
-        s_busy = 0;
+        s_busy = 0U;
     }
 
-    if (hisr & DMA_HISR_TEIF4)
+    if (hisr & (1U << 3U))   /* TEIF4: Transfer error */
     {
-        /* Transfer error – xóa cờ, reset busy */
-        DMA1->HIFCR = DMA_HIFCR_CTEIF4;
-        s_busy = 0;
+        DMA1->HIFCR = (1U << 3U);   /* CTEIF4 */
+        s_busy = 0U;
     }
 }
 
 /* ================================================================== */
-/* SPI2 IRQ Handler – Error handling                                   */
+/* SPI2 IRQ – Error handling                                           */
 /* ================================================================== */
 void SPI2_IRQHandler(void)
 {
     uint32_t sr = SPI2->SR;
 
-    /* OVR (Overrun): đọc DR và SR để xóa */
-    if (sr & SPI_SR_OVR)
+    /* OVR (Overrun) = bit6 */
+    if (sr & (1U << 6U))
     {
         (void)SPI2->DR;
         (void)SPI2->SR;
     }
 
-    /* MODF (Mode fault): reset SPE */
-    if (sr & SPI_SR_MODF)
+    /* MODF (Mode fault) = bit4 → reset SPE (bit6 CR1) */
+    if (sr & (1U << 4U))
     {
-        SPI2->CR1 &= ~SPI_CR1_SPE;
-        SPI2->CR1 |=  SPI_CR1_SPE;
+        SPI2->CR1 &= ~(1U << 6U);   /* SPE = 0 */
+        SPI2->CR1 |=  (1U << 6U);   /* SPE = 1 */
     }
 }

@@ -1,131 +1,164 @@
 /**
- * timer.c - TIM2 Input Capture, 4 channels (Bare-metal, STM32F407VG)
- * --------------------------------------------------------------------
- * TIM2 là timer 32-bit, dùng để capture timestamp chính xác khi
- * tín hiệu từ piezo vượt ngưỡng.
+ * timmer.c - TIM2 Input Capture 4 kênh (Bare-metal, STM32F407VG)
+ * ----------------------------------------------------------------
+ * TIM2 là timer 32-bit trên APB1.
  *
- * Clock: APB1 = 42 MHz → TIM2 clock = 84 MHz (x2 khi APB1 prescaler > 1)
- * Prescaler = 83 → Timer clock = 84MHz / (83+1) = 1 MHz → 1 tick = 1 µs
+ * Clock:
+ *   HCLK = 168MHz, APB1 prescaler = 4 → APB1 = 42MHz
+ *   Vì APB1 prescaler > 1 → TIM2 clock = 42 × 2 = 84MHz
+ *   PSC = 0 → tick = 1/84MHz ≈ 11.9 ns (độ phân giải cao nhất)
+ *   Nếu muốn 1 tick = 1µs → PSC = 83
  *
- * Channel mapping:
- *   CH1 → PA0 (Sensor D) – TIM2_CH1
- *   CH2 → PA1 (Sensor A) – TIM2_CH2
- *   CH3 → PA2 (Sensor B) – TIM2_CH3
- *   CH4 → PA3 (Sensor C) – TIM2_CH4
+ * Channel mapping (AF01):
+ *   TIM2_CH1 → PA0 (Sensor A)
+ *   TIM2_CH2 → PA1 (Sensor B)
+ *   TIM2_CH3 → PA2 (Sensor C)
+ *   TIM2_CH4 → PA3 (Sensor D)
  *
- * Capture trigger: Rising edge (tín hiệu OPA2134 lên cao = impact)
- * Interrupt: CCxIF set khi capture xảy ra → ISR lưu timestamp
+ * Capture: Rising edge, no filter, no prescaler
  *
- * Dữ liệu capture được lưu trong:
- *   extern volatile uint32_t g_timestamp[4];
- *   extern volatile uint8_t  g_capture_done;  (= 1 khi đủ 4 kênh)
+ * FIX: Thay toàn bộ macro _Pos bằng bit shift trực tiếp,
+ *      thay _Msk bằng literal mask, tương thích mọi phiên bản header.
  */
 
 #include "../inc/timmer.h"
 #include "../inc/stm32f4xx.h"
 
 /* ------------------------------------------------------------------ */
-/* Shared capture data (dùng trong main.c / tdoa.c)                    */
+/* Shared capture data – extern trong main.c                           */
 /* ------------------------------------------------------------------ */
-volatile uint32_t g_timestamp[4]  = {0, 0, 0, 0};
-volatile uint8_t  g_capture_flags = 0x00;  /* bit0=CH1, bit1=CH2, ... */
-volatile uint8_t  g_capture_done  = 0;     /* 1 = đủ 4 kênh */
+volatile uint32_t g_timestamp[4]  = {0U, 0U, 0U, 0U};
+volatile uint8_t  g_capture_flags = 0x00U;
+volatile uint8_t  g_capture_done  = 0U;
 
 /* ------------------------------------------------------------------ */
 void Timer_Init(void)
 {
-    /* ── 1. Bật clock TIM2 ───────────────────────────────────────── */
+    /* ── 1. Bật clock TIM2 (APB1) ───────────────────────────────── */
     RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
     __DSB();
 
-    /* ── 2. Reset TIM2 về trạng thái ban đầu ────────────────────── */
-    TIM2->CR1   = 0;
-    TIM2->CR2   = 0;
-    TIM2->SMCR  = 0;
-    TIM2->DIER  = 0;
-    TIM2->CCMR1 = 0;
-    TIM2->CCMR2 = 0;
-    TIM2->CCER  = 0;
-    TIM2->CNT   = 0;
+    /* ── 2. Tắt timer, reset toàn bộ register ───────────────────── */
+    TIM2->CR1   = 0U;
+    TIM2->CR2   = 0U;
+    TIM2->SMCR  = 0U;
+    TIM2->DIER  = 0U;
+    TIM2->CCMR1 = 0U;
+    TIM2->CCMR2 = 0U;
+    TIM2->CCER  = 0U;
+    TIM2->CNT   = 0U;
+    TIM2->SR    = 0U;
 
-    /* ── 3. Prescaler: 84MHz / 84 = 1MHz → 1 tick = 1 µs ────────── */
-    TIM2->PSC = 83U;     /* reload value = PSC+1 = 84 */
+    /* ── 3. Prescaler ────────────────────────────────────────────── */
+    /*
+     * PSC = 83 → TIM2 clock = 84MHz / 84 = 1MHz → 1 tick = 1µs
+     * Đủ độ phân giải cho TDOA (tốc độ âm ~0.0343 cm/µs)
+     */
+    TIM2->PSC = 83U;
 
-    /* ── 4. Auto-reload: max 32-bit (TIM2 là 32-bit timer) ──────── */
+    /* ── 4. Auto-reload: max 32-bit ─────────────────────────────── */
     TIM2->ARR = 0xFFFFFFFFU;
 
-    /* ── 5. CCMR1: CH1 & CH2 → Input Capture mode ───────────────── */
+    /* ── 5. CCMR1: CH1 và CH2 → Input Capture ───────────────────── */
     /*
-     * CCxS = 01 → ICx mapped on TIx (direct)
-     * ICxPSC = 00 → no prescaler (capture mỗi edge)
-     * ICxF = 0000 → no filter (tín hiệu từ OPA đã qua RC LPF rồi)
+     * CCxS[1:0] = 01 → ICx mapped trên TIx (direct input)
+     * ICxPSC    = 00 → No prescaler
+     * ICxF      = 0000 → No filter
+     *
+     * CCMR1 layout:
+     *   [1:0]   CC1S   [3:2]  IC1PSC  [7:4]  IC1F
+     *   [9:8]   CC2S   [11:10]IC2PSC  [15:12]IC2F
      */
-    TIM2->CCMR1 = 0;
-    TIM2->CCMR1 |= (1U << TIM_CCMR1_CC1S_Pos)   /* CH1: IC1→TI1 */
-                 | (0U << TIM_CCMR1_IC1PSC_Pos)
-                 | (0U << TIM_CCMR1_IC1F_Pos)
-                 | (1U << TIM_CCMR1_CC2S_Pos)    /* CH2: IC2→TI2 */
-                 | (0U << TIM_CCMR1_IC2PSC_Pos)
-                 | (0U << TIM_CCMR1_IC2F_Pos);
+    TIM2->CCMR1 = (1U << 0U)    /* CC1S = 01 (IC1→TI1) */
+                | (0U << 2U)    /* IC1PSC = 00 */
+                | (0U << 4U)    /* IC1F   = 0000 */
+                | (1U << 8U)    /* CC2S = 01 (IC2→TI2) */
+                | (0U << 10U)   /* IC2PSC = 00 */
+                | (0U << 12U);  /* IC2F   = 0000 */
 
-    /* ── 6. CCMR2: CH3 & CH4 → Input Capture mode ───────────────── */
-    TIM2->CCMR2 = 0;
-    TIM2->CCMR2 |= (1U << TIM_CCMR2_CC3S_Pos)   /* CH3: IC3→TI3 */
-                 | (0U << TIM_CCMR2_IC3PSC_Pos)
-                 | (0U << TIM_CCMR2_IC3F_Pos)
-                 | (1U << TIM_CCMR2_CC4S_Pos)    /* CH4: IC4→TI4 */
-                 | (0U << TIM_CCMR2_IC4PSC_Pos)
-                 | (0U << TIM_CCMR2_IC4F_Pos);
+    /* ── 6. CCMR2: CH3 và CH4 → Input Capture ───────────────────── */
+    /*
+     * CCMR2 layout (sama struktur dengan CCMR1, untuk CH3 dan CH4):
+     *   [1:0]   CC3S   [3:2]  IC3PSC  [7:4]  IC3F
+     *   [9:8]   CC4S   [11:10]IC4PSC  [15:12]IC4F
+     */
+    TIM2->CCMR2 = (1U << 0U)    /* CC3S = 01 (IC3→TI3) */
+                | (0U << 2U)    /* IC3PSC = 00 */
+                | (0U << 4U)    /* IC3F   = 0000 */
+                | (1U << 8U)    /* CC4S = 01 (IC4→TI4) */
+                | (0U << 10U)   /* IC4PSC = 00 */
+                | (0U << 12U);  /* IC4F   = 0000 */
 
     /* ── 7. CCER: Enable CH1–CH4, Rising edge ───────────────────── */
     /*
-     * CCxP = 0, CCxNP = 0 → Rising edge trigger
-     * CCxE = 1 → Enable capture
+     * CCxE  = 1 → Enable capture
+     * CCxP  = 0 → Rising edge (bit 1, 5, 9, 13)
+     * CCxNP = 0 → (bit 3, 7, 11, 15)
+     *
+     * CCER layout:
+     *   bit0=CC1E  bit1=CC1P  bit3=CC1NP
+     *   bit4=CC2E  bit5=CC2P  bit7=CC2NP
+     *   bit8=CC3E  bit9=CC3P  bit11=CC3NP
+     *   bit12=CC4E bit13=CC4P bit15=CC4NP
      */
-    TIM2->CCER = TIM_CCER_CC1E   /* CH1 enable */
-               | TIM_CCER_CC2E   /* CH2 enable */
-               | TIM_CCER_CC3E   /* CH3 enable */
-               | TIM_CCER_CC4E;  /* CH4 enable */
-    /* CCxP=0 mặc định → rising edge, không cần set thêm */
+    TIM2->CCER = (1U << 0U)    /* CC1E: CH1 enable */
+               | (0U << 1U)    /* CC1P: rising edge */
+               | (1U << 4U)    /* CC2E: CH2 enable */
+               | (0U << 5U)    /* CC2P: rising edge */
+               | (1U << 8U)    /* CC3E: CH3 enable */
+               | (0U << 9U)    /* CC3P: rising edge */
+               | (1U << 12U)   /* CC4E: CH4 enable */
+               | (0U << 13U);  /* CC4P: rising edge */
 
-    /* ── 8. DIER: Enable Capture Compare Interrupt cho cả 4 kênh ── */
-    TIM2->DIER = TIM_DIER_CC1IE   /* CH1 capture interrupt */
-               | TIM_DIER_CC2IE   /* CH2 capture interrupt */
-               | TIM_DIER_CC3IE   /* CH3 capture interrupt */
-               | TIM_DIER_CC4IE;  /* CH4 capture interrupt */
+    /* ── 8. DIER: Enable Capture Compare Interrupt CH1–CH4 ──────── */
+    /*
+     * bit0 = UIE  (update – không dùng)
+     * bit1 = CC1IE
+     * bit2 = CC2IE
+     * bit3 = CC3IE
+     * bit4 = CC4IE
+     */
+    TIM2->DIER = (1U << 1U)    /* CC1IE */
+               | (1U << 2U)    /* CC2IE */
+               | (1U << 3U)    /* CC3IE */
+               | (1U << 4U);   /* CC4IE */
 
-    /* ── 9. NVIC: Enable TIM2 interrupt, priority 0 (cao nhất) ─── */
+    /* ── 9. NVIC: Enable TIM2_IRQn, priority cao nhất ───────────── */
     NVIC_SetPriority(TIM2_IRQn, 0U);
     NVIC_EnableIRQ(TIM2_IRQn);
 
-    /* ── 10. EGR: Generate update event để load PSC/ARR ─────────── */
-    TIM2->EGR = TIM_EGR_UG;
+    /* ── 10. EGR: Update event để load PSC và ARR ───────────────── */
+    TIM2->EGR = (1U << 0U);    /* UG bit */
 
-    /* Xóa cờ update interrupt (do UG tạo ra) */
-    TIM2->SR = 0;
+    /* Xóa cờ update do UG tạo ra */
+    TIM2->SR = 0U;
 }
 
 /* ------------------------------------------------------------------ */
 void Timer_Start(void)
 {
-    /* Reset state */
-    g_timestamp[0]  = 0;
-    g_timestamp[1]  = 0;
-    g_timestamp[2]  = 0;
-    g_timestamp[3]  = 0;
-    g_capture_flags = 0x00;
-    g_capture_done  = 0;
+    /* Reset capture state */
+    g_timestamp[0]  = 0U;
+    g_timestamp[1]  = 0U;
+    g_timestamp[2]  = 0U;
+    g_timestamp[3]  = 0U;
+    g_capture_flags = 0x00U;
+    g_capture_done  = 0U;
 
-    TIM2->CNT = 0;           /* Reset counter */
-    TIM2->SR  = 0;           /* Xóa tất cả cờ */
-    TIM2->CR1 |= TIM_CR1_CEN; /* Start */
+    /* Reset counter và xóa cờ SR */
+    TIM2->CNT = 0U;
+    TIM2->SR  = 0U;
+
+    /* Start: CEN bit = bit0 của CR1 */
+    TIM2->CR1 |= (1U << 0U);
 }
 
 /* ------------------------------------------------------------------ */
 void Timer_Stop(void)
 {
-    TIM2->CR1 &= ~TIM_CR1_CEN;  /* Stop counter */
-    TIM2->SR   = 0;
+    /* Clear CEN bit */
+    TIM2->CR1 &= ~(1U << 0U);
+    TIM2->SR   = 0U;
 }
 
 /* ------------------------------------------------------------------ */
@@ -134,64 +167,8 @@ uint32_t Timer_GetValue(void)
     return TIM2->CNT;
 }
 
-/* ================================================================== */
-/* TIM2 IRQ Handler                                                    */
-/* ================================================================== */
-void TIM2_IRQHandler(void)
-{
-    uint32_t sr = TIM2->SR;
-
-    /* ── CH1 capture (PA0 – Sensor D) ──────────────────────────── */
-    if ((sr & TIM_SR_CC1IF) && !(g_capture_flags & 0x01))
-    {
-        g_timestamp[0]   = TIM2->CCR1;   /* đọc CCR tự xóa CC1IF */
-        g_capture_flags |= 0x01;
-    }
-    else if (sr & TIM_SR_CC1IF)
-    {
-        (void)TIM2->CCR1;                /* đọc để xóa cờ, bỏ qua giá trị */
-    }
-
-    /* ── CH2 capture (PA1 – Sensor A) ──────────────────────────── */
-    if ((sr & TIM_SR_CC2IF) && !(g_capture_flags & 0x02))
-    {
-        g_timestamp[1]   = TIM2->CCR2;
-        g_capture_flags |= 0x02;
-    }
-    else if (sr & TIM_SR_CC2IF)
-    {
-        (void)TIM2->CCR2;
-    }
-
-    /* ── CH3 capture (PA2 – Sensor B) ──────────────────────────── */
-    if ((sr & TIM_SR_CC3IF) && !(g_capture_flags & 0x04))
-    {
-        g_timestamp[2]   = TIM2->CCR3;
-        g_capture_flags |= 0x04;
-    }
-    else if (sr & TIM_SR_CC3IF)
-    {
-        (void)TIM2->CCR3;
-    }
-
-    /* ── CH4 capture (PA3 – Sensor C) ──────────────────────────── */
-    if ((sr & TIM_SR_CC4IF) && !(g_capture_flags & 0x08))
-    {
-        g_timestamp[3]   = TIM2->CCR4;
-        g_capture_flags |= 0x08;
-    }
-    else if (sr & TIM_SR_CC4IF)
-    {
-        (void)TIM2->CCR4;
-    }
-
-    /* ── Kiểm tra đủ 4 kênh ─────────────────────────────────────── */
-    if (g_capture_flags == 0x0F)
-    {
-        g_capture_done = 1;
-        Timer_Stop();   /* Dừng timer, chờ main xử lý */
-    }
-
-    /* Xóa tất cả cờ SR đã xử lý */
-    TIM2->SR = ~sr;
-}
+/*
+ * NOTE: TIM2_IRQHandler định nghĩa trong main.c
+ * timmer.c chỉ export: Timer_Init, Timer_Start, Timer_Stop, Timer_GetValue
+ * và các biến shared: g_timestamp[], g_capture_flags, g_capture_done
+ */
